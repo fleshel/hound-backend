@@ -1,35 +1,57 @@
 import os
 import logging
+import binascii
 
 import requests
+from web3 import Web3
 
-ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY")
+ALCHEMY_API_KEY = os.getenv("ALCHEMY_API_KEY")
 
-if ETHERSCAN_API_KEY is None:
-    logging.error("Etherscan API key is null, exiting now ")
-    exit(1)
+# setup basic logging, to file and console
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('app.log'),  # Specify the file to log to
+        logging.StreamHandler()  # Log to console
+    ]
+)
+
+#exit if no alchemy apikey found
+if ALCHEMY_API_KEY is not None:
+    logging.info("API Key found..")
 else:
-    logging.debug("Etherscan API Key loaded")
+    logging.critical("API KEY not found, exiting..")
+    exit(1)
 
-ETHERSCAN_BASE_URL = "https://api.etherscan.io/api"
+API_URL = f"https://eth-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
 
-def convert_wei_to_eth(wei: str) -> str:
-    """ Converts a balance in WEI to ETH """
-    return str(int(wei) / 1000000000000000000)
+REQUEST_HEADERS = {
+    "accept": "application/json",
+    "content-type": "application/json"
+}
 
-def get_eth_balance(address: str) -> str:
-    """ Returns eth balance at current block in WEI """
-    balance_response = requests.get(f"{ETHERSCAN_BASE_URL}?module=account&action=balance&address={address}&tag=latest&apikey={ETHERSCAN_API_KEY}")
+def load_erc20_for_address(address: str) -> dict:
+    """ 
+    Load all ERC-20 tokens owned by an address.
+    Returned as dict in format `{contractAddress: tokenBalance}`
+    """
+    payload = {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "method": "alchemy_getTokenBalances",
+        "params": [address, "erc20"]
+    }
 
-    balance_response_json = balance_response.json()
+    response = requests.post(API_URL, json=payload, headers=REQUEST_HEADERS)
 
-    if balance_response_json["status"] != '1':
-        result = balance_response_json["result"]
-        logging.debug(f"Error fetching balance for address {address} -- {result}")
-        return "0"
-    else:
-        return balance_response_json["result"]
-    
-def get_erc20_balances(address: str) -> dict:
-    balance_response = requests.get(f"{ETHERSCAN_BASE_URL}?module=account&action=addresstokenbalance&address={address}&page=1&offset=100&apikey={ETHERSCAN_API_KEY}")
-    print(balance_response.json())
+    response_statuscode = response.status_code
+
+    if response_statuscode != 200:
+        logging.error(f"Alchemy API request failed, status code = {response_statuscode}")
+        return {}
+
+    tokens = response.json()['result']['tokenBalances']
+    result_dict =  {contract['contractAddress']: int(contract['tokenBalance'][2:], 16) / pow(10, 18) for contract in tokens}
+
+    return result_dict
