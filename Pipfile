@@ -6,6 +6,7 @@ name = "pypi"
 [packages]
 socketify = "*"
 requests = "*"
+web3 = "*"
 
 [dev-packages]
 
